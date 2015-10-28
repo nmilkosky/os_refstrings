@@ -3,6 +3,7 @@
    Nate Milkosky */
 #include <stdio.h>
 #include <stdlib.h>
+
 // linked list node structure
 typedef struct ll_node 
 {
@@ -16,10 +17,9 @@ int sim_fifo(int *list, int length, int listLength)
 {
 	int counter = 0; // counter when iterating through the list
 	int pageFaults = 0; // page fault counter
-	int listLen = 0; //keeps track of the length of the list so it doesn't go over
+	int listCounter = 0; //keeps track of the length of the list so it doesn't go over
 	ll_node *root = NULL;
 	ll_node *tail = NULL;
-	int listCounter = 0;
 	int isInList = 0; //0 is false, otherwise true	
 	ll_node *cur = NULL;
 	//iterate through list
@@ -99,7 +99,7 @@ int sim_tLRU( int *list, int length, int frames)
 	{
 		while( isInStack == 0 && cur != NULL ) //iterate thru stack, check if page is in stack
 		{ //iterates from bottom up
-			if( cur->value == list[counter]) //it is in the stack
+			if( cur->value == list[counter] ) //it is in the stack
 			{
 				isInStack = 1;
 				if(top->value != cur->value) //if it's not at the top, we have to move
@@ -108,12 +108,13 @@ int sim_tLRU( int *list, int length, int frames)
 					if(bottom->value != cur->value) //if it's not on the bottom,
 					{ //there is a previous node in the stack
 						cur->prev->next = cur->next; //link cur's prev to next
+						cur->next->prev = cur->prev; // link cur's next to cur's prev
 					}
 					else //it is at the bottom, so we have to assign new bottom
 					{
 						bottom = cur->next; //bottom is what was on top of cur
 					}
-					cur->next->prev = cur->prev; // link cur's next to cur's prev
+					cur->prev = top; //since cur has no prev, set it to top.
 					top = cur; //reassign top
 					cur->next = NULL; //top doesn't have a next
 				}
@@ -165,13 +166,95 @@ int sim_tLRU( int *list, int length, int frames)
 	}
 	return(pageFaults);	
 }
-int main ( int argc, char *argv[])
-{
-	int refString[] = { 1, 2, 1, 3, 4, 1 };
-	int pageFaultsFifo = sim_fifo(refString, 6, 3);
-	int pageFaultstLRU = sim_tLRU(refString, 6, 3);
-	printf("FIFO: %d \n", pageFaultsFifo);
-	printf("tLRU: %d \n", pageFaultstLRU);
 
-	return 0;
-}
+typedef struct sec_node
+{
+	int value;
+	int referenced;
+	struct sec_node *next;
+}sec_node;
+
+int sim_secC( int *list, int length, int frames )
+{
+	int counter = 0; //counter for iterating thru ref string
+	int pageFaults = 0; // page fault counter
+	int queueLen = 0; //keeps track of length of the queue
+	sec_node *first = NULL;	//first in the queue (the oldest)
+	sec_node *last = NULL; //last in queue, newest
+	sec_node *cur = NULL; //for iterating through the queue
+	int isInQueue = 0; // 0 is false, anything else means true
+	while(counter < length) //iterate thru the list
+	{
+		while( isInQueue == 0 && cur != NULL )
+		{
+			if(cur->value == list[counter])
+			{
+				//if it is in the queue, set set isInQueue	
+				isInQueue = 1;
+				cur->referenced = 1; //set the reference bit
+			}
+			else
+			{
+				//if it isnt, go to the next node
+				cur = cur->next;	
+			}
+		}
+		if( queueLen == 0 )
+		{
+			pageFaults++;
+			first = malloc(sizeof(sec_node));
+			first->value = list[counter];
+			first->next = NULL;
+			first->referenced = 0;
+			cur = first;
+			last = first;
+			queueLen++;		
+		}
+		else if( isInQueue == 0 )
+		{
+			if( queueLen >= frames ) //queue full
+			{
+				sec_node *temp = first; //used to iterate thru list
+				sec_node *temp2 = NULL; //previous item in list
+				while( temp != NULL && temp->referenced != 0 ) //iterate until we find
+				{ // a page that isn't referenced
+					temp->referenced = 0;
+					if(temp->value == first->value) //when we encounter the first
+					{//item and it's reference bit is set, move it to the end
+						first = temp->next;
+						last->next = temp;
+						last = temp;					
+					}
+					else
+					{ //if we are at another item and its reference bit is set
+						temp2->next = temp->next; //update item before it
+						last->next = temp; //move it to the end
+						last = temp; //update pointer to last element
+					}
+
+				}
+				temp = first->next; //now we can dequeue, so hold the next item
+				free(first); //remove the data from first
+				first = temp; // set first equal to the item after first
+				temp = NULL; // set temp = null
+				free(temp); //free it
+				queueLen--; //decrement queue size
+				temp2 = NULL; //remove temp2
+				free(temp2);			
+			}
+			last->next = malloc(sizeof(sec_node));
+			last->next->value = list[counter];
+			last->next->next = NULL;
+			last->next->referenced = 0;
+
+			last = last->next;
+			
+			pageFaults++;
+			queueLen++;
+		}
+		counter++;
+		cur = first;
+		isInQueue = 0;
+	}
+	return(pageFaults);
+}	
